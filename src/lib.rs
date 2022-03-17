@@ -5,10 +5,13 @@ use std::{
     process::Command,
 };
 
-pub fn build_target_dep(name: impl Into<String>, package_root: impl AsRef<Path>) -> TargetDep {
+pub fn build_target_dep(
+    package_root: impl AsRef<Path>,
+    output_path: impl Into<PathBuf>,
+) -> TargetDep {
     TargetDep {
-        name: name.into(),
         manifest_path: package_root.as_ref().join("Cargo.toml"),
+        output_path: output_path.into(),
         ..Default::default()
     }
 }
@@ -16,9 +19,8 @@ pub fn build_target_dep(name: impl Into<String>, package_root: impl AsRef<Path>)
 #[derive(Default)]
 #[must_use = "must call build()"]
 pub struct TargetDep {
-    name: String,
     manifest_path: PathBuf,
-    dest_path: Option<PathBuf>,
+    output_path: PathBuf,
     profile: Option<String>,
     target: Option<String>,
 }
@@ -49,10 +51,14 @@ impl TargetDep {
         cmd.arg("--profile");
         cmd.arg(profile);
 
-        // e.g. target/target-deps/<name>/
+        // e.g. target/target-deps/output__path/
         let target_dir = Path::new(&build_env_var("OUT_DIR"))
             .join("target-deps")
-            .join(&self.name);
+            .join(
+                self.output_path
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "__"),
+            );
         cmd.arg("--target-dir");
         cmd.arg(&target_dir);
 
@@ -64,8 +70,8 @@ impl TargetDep {
         let status = cmd.status().expect("failed to execute process");
         if !status.success() {
             panic!(
-                "error building target dep {:?} at {:?}: {:?}",
-                self.name, self.manifest_path, status
+                "error building target dep {:?}: {:?}",
+                self.manifest_path, status
             );
         }
 
@@ -76,13 +82,6 @@ impl TargetDep {
             out_dir = out_dir.join(target);
         }
         out_dir = out_dir.join(profile);
-
-        let dest_path = self.dest_path.unwrap_or_else(|| {
-            Path::new(build_env_var("CARGO_MANIFEST_DIR").as_str()).join("target-deps")
-        });
-        if !dest_path.exists() {
-            std::fs::create_dir(&dest_path).unwrap();
-        }
 
         // TODO(lann): Better error handling/reporting
         for dep_file in glob::glob(out_dir.join("*.d").to_str().unwrap()).unwrap() {
@@ -104,12 +103,11 @@ impl TargetDep {
 
             let (out_path, dep_paths) = paths.split_first().unwrap();
             let out_path = out_path
-                .strip_suffix(":")
+                .strip_suffix(':')
                 .expect("output missing trailing :");
 
-            // Move output to destination
-            let dest_file = dest_path.join(Path::new(out_path).file_name().unwrap());
-            std::fs::rename(out_path, dest_file).unwrap();
+            // Move output
+            std::fs::rename(out_path, &self.output_path).unwrap();
 
             // Emit dependencies
             for dep_path in dep_paths {
@@ -120,11 +118,10 @@ impl TargetDep {
 }
 
 fn build_env_var(key: impl AsRef<str>) -> String {
-    env::var(key.as_ref()).expect(
-        format!(
+    env::var(key.as_ref()).unwrap_or_else(|_| {
+        panic!(
             "missing required env var {:?}; cargo-target-dep is meant to be used from a build.rs",
             key.as_ref()
         )
-        .as_ref(),
-    )
+    })
 }
