@@ -107,7 +107,12 @@ impl TargetDep {
                 .expect("output missing trailing :");
 
             // Move output
-            std::fs::rename(out_path, &self.output_path).unwrap();
+            std::fs::rename(out_path, &self.output_path).unwrap_or_else(|err| {
+                panic!(
+                    "Failed to move output {:?} to {:?}: {}",
+                    out_path, &self.output_path, err
+                )
+            });
 
             // Emit dependencies
             for dep_path in dep_paths {
