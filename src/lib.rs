@@ -41,6 +41,7 @@ impl TargetDep {
 
         let cargo_bin = build_env_var("CARGO");
         let mut cmd = Command::new(cargo_bin);
+        cmd.env_clear().env("PATH", env::var_os("PATH").unwrap());
 
         cmd.arg("build");
 
