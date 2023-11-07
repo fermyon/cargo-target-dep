@@ -5,6 +5,8 @@ use std::{
     process::Command,
 };
 
+use std::{fs, io};
+
 pub fn build_target_dep(
     package_root: impl AsRef<Path>,
     output_path: impl Into<PathBuf>,
@@ -107,12 +109,16 @@ impl TargetDep {
                 .expect("output missing trailing :");
 
             // Move output
-            std::fs::rename(out_path, &self.output_path).unwrap_or_else(|err| {
-                panic!(
-                    "Failed to move output {:?} to {:?}: {}",
+            if let Err(err) = std::fs::rename(out_path, &self.output_path) {
+                eprintln!(
+                    "WARN: failed to move output {:?} to {:?}: {}. going to attempt copy",
                     out_path, &self.output_path, err
-                )
-            });
+                );
+
+                if let Err(err) = std::fs::copy(out_path, &self.output_path) {
+                    panic!("error when copying file: {:?}", err)
+                };
+            }
 
             // Emit dependencies
             for dep_path in dep_paths {
